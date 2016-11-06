@@ -1,6 +1,7 @@
 (defpackage :cells
   (:use :cl)
-  (:export :cell :set-value :add-watcher :propagate :make-cell :connect :defconnection))
+  (:export :cell :set-value :add-watcher :propagate :make-cell :connect :defconnection
+   :cell-value :cell-watchers))
 
 (in-package :cells)
 
@@ -31,7 +32,7 @@
     (dolist (i inputs)
       (add-watcher i #'(lambda ()
                          (let ((in-values (mapcar #'cell-value inputs)))
-                           (if (some null in-values)
+                           (if (some #'null in-values)
                                (set-value output nil)
                                (set-value output (apply fn in-values)))))))))
 
