@@ -1,12 +1,17 @@
+(ql:quickload :uuid)
+
 (defpackage :cells
-  (:use :cl)
-  (:export :cell :set-value :add-watcher :propagate :make-cell :connect :defconnection
-   :cell-value :cell-watchers))
+  (:use :cl :uuid)
+  (:export
+   :cell :set-value :add-watcher :propagate :make-cell :connect
+   :cell-value :cell-watchers :propagator :cond-connect :defconn))
 
 (in-package :cells)
 
 (defclass cell ()
-  ((value :accessor cell-value
+  ((id :accessor cell-id
+       :initform (uuid:make-v1-uuid))
+   (value :accessor cell-value
           :initarg :value
           :initform nil)
    (watchers :accessor cell-watchers
@@ -27,8 +32,9 @@
 (defun make-cell (&key (value nil))
   (make-instance 'cell :value value))
 
-(defun connect (fn output input &rest more-inputs)
-  (let ((inputs (cons input more-inputs)))
+(defun connect (fn &rest more-inputs)
+  (let ((inputs (butlast more-inputs))
+        (output (first (last more-inputs))))
     (dolist (i inputs)
       (add-watcher i #'(lambda ()
                          (let ((in-values (mapcar #'cell-value inputs)))
@@ -36,10 +42,33 @@
                                (set-value output nil)
                                (set-value output (apply fn in-values)))))))))
 
-(defmacro defconnection (name arg-list &body body)
-  `(let ((once nil))
-     (defun ,name ,arg-list
-       (when (not once)
-         (setq once t)
-         (progn
-           ,@body)))))
+(defun propagator (fn &rest cells)
+  (dolist (c cells)
+    (add-watcher c fn)))
+
+(defun cond-connect (pred-cell t-cell f-cell output)
+  (propagator #'(lambda ()
+                  (let ((pred-value (cell-value pred-cell)))
+                    (if pred-value
+                        (set-value output (cell-value t-cell))
+                        (set-value output (cell-value f-cell)))))
+              pred-cell
+              t-cell
+              f-cell))
+
+(defun gen-cell-key (cells)
+  (apply #'concatenate
+         (cons 'string
+               (mapcar #'(lambda (c) (format nil "~A" (cell-id c))) cells))))
+
+(defmacro defconn (fname arg-list &body body)
+  `(let ((h (make-hash-table :test 'equal)))
+     (defun ,fname ,arg-list
+       (let ((key (gensym)))
+         (setq key (gen-cell-key (list ,@arg-list)))
+         (if (gethash key h)
+             'done
+             (progn
+               (setf (gethash key h) t)
+               (progn
+                 ,@body)))))))
